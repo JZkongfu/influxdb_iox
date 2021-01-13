@@ -14,34 +14,38 @@ use std::{mem, path::PathBuf};
 /// Deliberately does not implement `Display` or `ToString`! Use one of the
 /// converters.
 #[derive(Default, Clone, PartialEq, Eq, Debug)]
-pub struct ObjectStorePath {
-    inner: PathRepresentation,
+pub struct ObjectStorePath<T: PathRepresentation> {
+    inner: T,
 }
 
-impl ObjectStorePath {
+impl ObjectStorePath<CloudPathRepresentation> {
     /// For use when receiving a path from an object store API directly, not
     /// when building a path. Assumes DELIMITER is the separator.
-    ///
-    /// TODO: This should only be available to cloud storage
     pub fn from_cloud_unchecked(path: impl Into<String>) -> Self {
         let path = path.into();
         Self {
-            inner: PathRepresentation::RawCloud(path),
+            inner: CloudPath {
+                inner: CloudPathRepresentation::Raw(path),
+            },
         }
     }
+}
 
+impl ObjectStorePath<PathBufPathRepresentation> {
     /// For use when receiving a path from a filesystem directly, not
     /// when building a path. Uses the standard library's path splitting
     /// implementation to separate into parts.
-    ///
-    /// TODO: This should only be available to file storage
     pub fn from_path_buf_unchecked(path: impl Into<PathBuf>) -> Self {
         let path = path.into();
         Self {
-            inner: PathRepresentation::RawPathBuf(path),
+            inner: PathBufPath {
+                inner: PathBufPathRepresentation::Raw(path),
+            },
         }
     }
+}
 
+impl<T: PathRepresentation> ObjectStorePath<T> {
     /// Add a part to the end of the path, encoding any restricted characters.
     pub fn push_dir(&mut self, part: impl Into<String>) {
         self.inner = mem::take(&mut self.inner).push_dir(part);
@@ -79,23 +83,7 @@ impl ObjectStorePath {
     /// Returns true if the directories in `prefix` are the same as the starting
     /// directories of `self`.
     pub fn prefix_matches(&self, prefix: &Self) -> bool {
-        use PathRepresentation::*;
-        match (&self.inner, &prefix.inner) {
-            (Parts(self_parts), Parts(other_parts)) => self_parts.prefix_matches(&other_parts),
-            (Parts(self_parts), _) => {
-                let prefix_parts: DirsAndFileName = prefix.into();
-                self_parts.prefix_matches(&prefix_parts)
-            }
-            (_, Parts(prefix_parts)) => {
-                let self_parts: DirsAndFileName = self.into();
-                self_parts.prefix_matches(&prefix_parts)
-            }
-            _ => {
-                let self_parts: DirsAndFileName = self.into();
-                let prefix_parts: DirsAndFileName = prefix.into();
-                self_parts.prefix_matches(&prefix_parts)
-            }
-        }
+        self.inner.prefix_matches(&prefix.inner)
     }
 }
 
@@ -113,27 +101,53 @@ impl From<DirsAndFileName> for ObjectStorePath {
     }
 }
 
-#[derive(Clone, Eq, Debug)]
-enum PathRepresentation {
-    RawCloud(String),
-    RawPathBuf(PathBuf),
-    Parts(DirsAndFileName),
+#[derive(Debug, Clone)]
+struct CloudPath {
+    inner: CloudPathRepresentation,
 }
 
-impl Default for PathRepresentation {
-    fn default() -> Self {
-        Self::Parts(DirsAndFileName::default())
-    }
+#[derive(Debug, Clone)]
+enum CloudPathRepresentation {
+    Raw(String),
+    Parsed(DirsAndFileName),
 }
 
-impl PathRepresentation {
+#[derive(Debug, Clone)]
+struct PathBufPath {
+    inner: PathBufPathRepresentation,
+}
+
+#[derive(Debug, Clone)]
+enum PathBufPathRepresentation {
+    Raw(PathBuf),
+    Parsed(DirsAndFileName),
+}
+
+trait PathRepresentation {
+    fn push_dir(self, part: impl Into<String>) -> Self;
+    fn push_all_dirs<'a>(self, parts: impl AsRef<[&'a str]>) -> Self;
+    fn push_part_as_dir(self, part: &PathPart) -> Self;
+    fn push_path(self, path: &ObjectStorePath) -> Self;
+    fn set_file_name(self, part: impl Into<String>) -> Self;
+    fn prefix_matches(&self, prefix: &Self) -> bool;
+    fn parts_after_prefix(&self, prefix: &Self) -> Option<Vec<PathPart>>;
+}
+
+impl PathRepresentation for CloudPath {
     /// Add a part to the end of the path's directories, encoding any restricted
     /// characters.
     fn push_dir(self, part: impl Into<String>) -> Self {
-        let mut dirs_and_file_name: DirsAndFileName = self.into();
+        use CloudPathRepresentation::*;
 
-        dirs_and_file_name.push_dir(part);
-        Self::Parts(dirs_and_file_name)
+        match self.inner {
+            Raw(raw) => {
+                let mut dirs_and_file_name: DirsAndFileName = raw.into();
+                dirs_and_file_name.push_dir(part);
+                self.inner = Parsed(dirs_and_file_name);
+            }
+            Parsed(dirs_and_file_name) => dirs_and_file_name.push_dir(part),
+        }
+        self
     }
 
     /// Push a bunch of parts as directories in one go.
@@ -181,36 +195,32 @@ impl PathRepresentation {
     }
 }
 
-impl PartialEq for PathRepresentation {
-    fn eq(&self, other: &Self) -> bool {
-        use PathRepresentation::*;
-        match (self, other) {
-            (Parts(self_parts), Parts(other_parts)) => self_parts == other_parts,
-            (Parts(self_parts), _) => {
-                let other_parts: DirsAndFileName = other.to_owned().into();
-                *self_parts == other_parts
-            }
-            (_, Parts(other_parts)) => {
-                let self_parts: DirsAndFileName = self.to_owned().into();
-                self_parts == *other_parts
-            }
-            _ => {
-                let self_parts: DirsAndFileName = self.to_owned().into();
-                let other_parts: DirsAndFileName = other.to_owned().into();
-                self_parts == other_parts
-            }
-        }
-    }
-}
-
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
-pub(crate) struct DirsAndFileName {
+struct DirsAndFileName {
     directories: Vec<PathPart>,
     file_name: Option<PathPart>,
 }
 
-impl DirsAndFileName {
-    pub(crate) fn prefix_matches(&self, prefix: &Self) -> bool {
+impl PathRepresentation for DirsAndFileName {
+    /// Add a part to the end of the path's directories, encoding any restricted
+    /// characters.
+    fn push_dir(&mut self, part: impl Into<String>) {
+        let part = part.into();
+        self.directories.push((&*part).into());
+    }
+
+    /// Push a bunch of parts as directories in one go.
+    fn push_all_dirs<'a>(&mut self, parts: impl AsRef<[&'a str]>) {
+        self.directories
+            .extend(parts.as_ref().iter().map(|&v| v.into()));
+    }
+
+    /// Add a `PathPart` to the end of the path's directories.
+    fn push_part_as_dir(&mut self, part: &PathPart) {
+        self.directories.push(part.to_owned());
+    }
+
+    fn prefix_matches(&self, prefix: &Self) -> bool {
         let diff = itertools::diff_with(
             self.directories.iter(),
             prefix.directories.iter(),
@@ -255,7 +265,7 @@ impl DirsAndFileName {
     /// Returns all directory and file name `PathParts` in `self` after the
     /// specified `prefix`. Ignores any `file_name` part of `prefix`.
     /// Returns `None` if `self` dosen't start with `prefix`.
-    pub(crate) fn parts_after_prefix(&self, prefix: &Self) -> Option<Vec<PathPart>> {
+    fn parts_after_prefix(&self, prefix: &Self) -> Option<Vec<PathPart>> {
         let mut dirs_iter = self.directories.iter();
         let mut prefix_dirs_iter = prefix.directories.iter();
 
@@ -283,23 +293,6 @@ impl DirsAndFileName {
         Some(parts)
     }
 
-    /// Add a part to the end of the path's directories, encoding any restricted
-    /// characters.
-    fn push_dir(&mut self, part: impl Into<String>) {
-        let part = part.into();
-        self.directories.push((&*part).into());
-    }
-
-    /// Push a bunch of parts as directories in one go.
-    fn push_all_dirs<'a>(&mut self, parts: impl AsRef<[&'a str]>) {
-        self.directories
-            .extend(parts.as_ref().iter().map(|&v| v.into()));
-    }
-
-    /// Add a `PathPart` to the end of the path's directories.
-    pub(crate) fn push_part_as_dir(&mut self, part: &PathPart) {
-        self.directories.push(part.to_owned());
-    }
 }
 
 impl From<PathRepresentation> for DirsAndFileName {
