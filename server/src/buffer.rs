@@ -456,6 +456,49 @@ impl Segment {
 
         Ok(segment)
     }
+
+    pub fn persist_bytes_in_background(
+        &self,
+        writer_id: u32,
+        db_name: &DatabaseName<'_>,
+        store: Arc<ObjectStore>,
+    ) -> Result<()> {
+        let data = self.to_file_bytes(writer_id)?;
+
+        let location = database_object_store_path(writer_id, db_name);
+        let location = object_store_path_for_segment(&location, self.id)?;
+
+        let len = data.len();
+        let mut stream_data = std::io::Result::Ok(data.clone());
+
+        tokio::task::spawn(async move {
+            while let Err(err) = store
+                .put(
+                    &location,
+                    futures::stream::once(async move { stream_data }),
+                    len,
+                )
+                .await
+            {
+                error!("error writing bytes to store: {}", err);
+                tokio::time::delay_for(tokio::time::Duration::from_secs(STORE_ERROR_PAUSE_SECONDS))
+                    .await;
+                stream_data = std::io::Result::Ok(data.clone());
+            }
+
+            info!("persisted data to {}", store.convert_path(&location));
+        });
+
+        Ok(())
+    }
+}
+
+// base location in object store for a given database name
+fn database_object_store_path(writer_id: u32, database_name: &DatabaseName<'_>) -> ObjectStorePath {
+    let mut path = ObjectStorePath::default();
+    path.push_dir(format!("{}", writer_id));
+    path.push_dir(database_name.to_string());
+    path
 }
 
 /// The summary information for a writer that has data in a segment

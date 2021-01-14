@@ -348,12 +348,9 @@ impl<M: ConnectionManager> Server<M> {
             if let Some(segment) = segment {
                 if persist {
                     let writer_id = self.require_id()?;
-                    let data = segment.to_file_bytes(writer_id).context(WalError)?;
                     let store = self.store.clone();
-                    let location = database_object_store_path(writer_id, db_name);
-                    let location = buffer::object_store_path_for_segment(&location, segment.id)
-                        .context(WalError)?;
-                    persist_bytes_in_background(data, store, location);
+
+                    segment.persist_bytes_in_background(writer_id, db_name, store);
                 }
             }
         }
@@ -536,40 +533,7 @@ fn config_location(id: u32) -> ObjectStorePath {
     path
 }
 
-// base location in object store for a given database name
-fn database_object_store_path(writer_id: u32, database_name: &DatabaseName<'_>) -> ObjectStorePath {
-    let mut path = ObjectStorePath::default();
-    path.push_dir(format!("{}", writer_id));
-    path.push_dir(database_name.to_string());
-    path
-}
-
 const STORE_ERROR_PAUSE_SECONDS: u64 = 100;
-
-/// Spawns a tokio task that will continuously try to persist the bytes to the
-/// given object store location.
-fn persist_bytes_in_background(data: Bytes, store: Arc<ObjectStore>, location: ObjectStorePath) {
-    let len = data.len();
-    let mut stream_data = std::io::Result::Ok(data.clone());
-
-    tokio::task::spawn(async move {
-        while let Err(err) = store
-            .put(
-                &location,
-                futures::stream::once(async move { stream_data }),
-                len,
-            )
-            .await
-        {
-            error!("error writing bytes to store: {}", err);
-            tokio::time::delay_for(tokio::time::Duration::from_secs(STORE_ERROR_PAUSE_SECONDS))
-                .await;
-            stream_data = std::io::Result::Ok(data.clone());
-        }
-
-        info!("persisted data to {}", store.convert_path(&location));
-    });
-}
 
 #[cfg(test)]
 mod tests {
