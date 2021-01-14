@@ -196,7 +196,7 @@ impl PathRepresentation for CloudPath {
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
-struct DirsAndFileName {
+pub struct DirsAndFileName {
     directories: Vec<PathPart>,
     file_name: Option<PathPart>,
 }
@@ -295,27 +295,30 @@ impl PathRepresentation for DirsAndFileName {
 
 }
 
-impl From<PathRepresentation> for DirsAndFileName {
-    fn from(path_rep: PathRepresentation) -> Self {
-        match path_rep {
-            PathRepresentation::RawCloud(path) => {
-                let mut parts: Vec<_> = path
-                    .split_terminator(DELIMITER)
-                    .map(|s| PathPart(s.to_string()))
-                    .collect();
-                let maybe_file_name = match parts.pop() {
-                    Some(file) if file.0.contains('.') => Some(file),
-                    Some(dir) => {
-                        parts.push(dir);
-                        None
-                    }
-                    None => None,
-                };
-                Self {
-                    directories: parts,
-                    file_name: maybe_file_name,
-                }
+impl From<CloudPath> for DirsAndFileName {
+    fn from(cloud_path: CloudPath) -> Self {
+        match cloud_path.inner {
+
+        }
+        let mut parts: Vec<_> = path
+            .split_terminator(DELIMITER)
+            .map(|s| PathPart(s.to_string()))
+            .collect();
+        let maybe_file_name = match parts.pop() {
+            Some(file) if file.0.contains('.') => Some(file),
+            Some(dir) => {
+                parts.push(dir);
+                None
             }
+            None => None,
+        };
+        Self {
+            directories: parts,
+            file_name: maybe_file_name,
+        }
+    }
+}
+
             PathRepresentation::RawPathBuf(path) => {
                 let mut parts: Vec<_> = path
                     .iter()
