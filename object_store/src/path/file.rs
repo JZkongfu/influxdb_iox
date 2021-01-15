@@ -167,3 +167,94 @@ impl From<FilePathRepresentation> for DirsAndFileName {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn path_buf_to_dirs_and_file_name_conversion() {
+        // Last section ending in `.json` is a file name
+        let path_buf: PathBuf = "/one/two/blah.json".into();
+        let file_path = FilePath::raw(path_buf);
+        let parts: DirsAndFileName = file_path.into();
+        assert_eq!(parts.directories.len(), 3);
+        assert_eq!(parts.file_name.unwrap().0, "blah.json");
+
+        // Last section ending in `.segment` is a file name
+        let path_buf: PathBuf = "/one/two/blah.segment".into();
+        let file_path = FilePath::raw(path_buf);
+        let parts: DirsAndFileName = file_path.into();
+        assert_eq!(parts.directories.len(), 3);
+        assert_eq!(parts.file_name.unwrap().0, "blah.segment");
+
+        // Last section ending in `.parquet` is a file name
+        let path_buf: PathBuf = "/one/two/blah.parquet".into();
+        let file_path = FilePath::raw(path_buf);
+        let parts: DirsAndFileName = file_path.into();
+        assert_eq!(parts.directories.len(), 3);
+        assert_eq!(parts.file_name.unwrap().0, "blah.parquet");
+
+        // Last section ending in `.txt` is NOT a file name; we don't recognize that
+        // extension
+        let path_buf: PathBuf = "/one/two/blah.txt".into();
+        let file_path = FilePath::raw(path_buf);
+        let parts: DirsAndFileName = file_path.into();
+        assert_eq!(parts.directories.len(), 4);
+        assert!(parts.file_name.is_none());
+
+        // Last section containing a `.` isn't a file name
+        let path_buf: PathBuf = "/one/two/blah.blah".into();
+        let file_path = FilePath::raw(path_buf);
+        let parts: DirsAndFileName = file_path.into();
+        assert_eq!(parts.directories.len(), 4);
+        assert!(parts.file_name.is_none());
+
+        // Last section starting with a `.` isn't a file name (macos temp dirs do this)
+        let path_buf: PathBuf = "/one/two/.blah".into();
+        let file_path = FilePath::raw(path_buf);
+        let parts: DirsAndFileName = file_path.into();
+        assert_eq!(parts.directories.len(), 4);
+        assert!(parts.file_name.is_none());
+    }
+
+    #[test]
+    fn conversions() {
+        // dir and file name
+        let path_buf: PathBuf = "foo/bar/blah.json".into();
+        let file_path = FilePath::raw(path_buf);
+        let parts: DirsAndFileName = file_path.into();
+
+        let mut expected_parts = DirsAndFileName::default();
+        expected_parts.push_dir("foo");
+        expected_parts.push_dir("bar");
+        expected_parts.file_name = Some("blah.json".into());
+
+        assert_eq!(parts, expected_parts);
+
+        // dir, no file name
+        let path_buf: PathBuf = "foo/bar".into();
+        let file_path = FilePath::raw(path_buf);
+        let parts: DirsAndFileName = file_path.into();
+
+        expected_parts.file_name = None;
+
+        assert_eq!(parts, expected_parts);
+
+        // no dir, file name
+        let path_buf: PathBuf = "blah.json".into();
+        let file_path = FilePath::raw(path_buf);
+        let parts: DirsAndFileName = file_path.into();
+
+        assert!(parts.directories.is_empty());
+        assert_eq!(parts.file_name.unwrap().encoded(), "blah.json");
+
+        // empty
+        let path_buf: PathBuf = "".into();
+        let file_path = FilePath::raw(path_buf);
+        let parts: DirsAndFileName = file_path.into();
+
+        assert!(parts.directories.is_empty());
+        assert!(parts.file_name.is_none());
+    }
+}
