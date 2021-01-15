@@ -1,7 +1,7 @@
 //! This module contains the IOx implementation for using local disk as the
 //! object store.
 use crate::{
-    path::{file::FileConverter, ObjectStorePath},
+    path::{FileConverter, ObjectStorePath},
     DataDoesNotMatchLength, Result, UnableToCopyDataToFile, UnableToCreateDir, UnableToCreateFile,
     UnableToDeleteFile, UnableToOpenFile, UnableToPutDataInMemory, UnableToReadBytes,
 };
