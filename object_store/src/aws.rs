@@ -1,7 +1,7 @@
 //! This module contains the IOx implementation for using S3 as the object
 //! store.
 use crate::{
-    path::{cloud::CloudConverter, ObjectStorePath, DELIMITER},
+    path::{cloud::{CloudConverter, CloudPath}, ObjectStorePath, DELIMITER},
     Error, ListResult, NoDataFromS3, ObjectMeta, Result, UnableToDeleteDataFromS3,
     UnableToGetDataFromS3, UnableToGetPieceOfDataFromS3, UnableToPutDataToS3,
 };
@@ -63,7 +63,7 @@ impl AmazonS3 {
 
         let put_request = rusoto_s3::PutObjectRequest {
             bucket: self.bucket_name.clone(),
-            key: CloudConverter::convert(&location),
+            key: CloudConverter::convert(location),
             body: Some(bytes),
             ..Default::default()
         };
@@ -176,7 +176,7 @@ impl AmazonS3 {
             let contents = resp.contents.unwrap_or_default();
             let names = contents
                 .into_iter()
-                .flat_map(|object| object.key.map(ObjectStorePath::from_cloud_unchecked))
+                .flat_map(|object| object.key.map(CloudPath::raw))
                 .collect();
 
             // The AWS response contains a field named `is_truncated` as well as

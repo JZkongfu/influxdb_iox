@@ -72,7 +72,7 @@ impl ObjectStore {
     {
         use ObjectStoreIntegration::*;
         match &self.0 {
-            AmazonS3(s3) => s3.put(location, bytes, length).await?,
+            AmazonS3(s3) => s3.put(location.into(), bytes, length).await?,
             GoogleCloudStorage(gcs) => gcs.put(location, bytes, length).await?,
             InMemory(in_mem) => in_mem.put(location, bytes, length).await?,
             File(file) => file.put(location, bytes, length).await?,
@@ -89,7 +89,7 @@ impl ObjectStore {
     ) -> Result<impl Stream<Item = Result<Bytes>>> {
         use ObjectStoreIntegration::*;
         Ok(match &self.0 {
-            AmazonS3(s3) => s3.get(location).await?.boxed(),
+            AmazonS3(s3) => s3.get(location.into()).await?.boxed(),
             GoogleCloudStorage(gcs) => gcs.get(location).await?.boxed(),
             InMemory(in_mem) => in_mem.get(location).await?.boxed(),
             File(file) => file.get(location).await?.boxed(),
@@ -102,7 +102,7 @@ impl ObjectStore {
     pub async fn delete(&self, location: &ObjectStorePath) -> Result<()> {
         use ObjectStoreIntegration::*;
         match &self.0 {
-            AmazonS3(s3) => s3.delete(location).await?,
+            AmazonS3(s3) => s3.delete(location.into()).await?,
             GoogleCloudStorage(gcs) => gcs.delete(location).await?,
             InMemory(in_mem) => in_mem.delete(location).await?,
             File(file) => file.delete(location).await?,
@@ -119,7 +119,7 @@ impl ObjectStore {
     ) -> Result<impl Stream<Item = Result<Vec<ObjectStorePath>>> + 'a> {
         use ObjectStoreIntegration::*;
         Ok(match &self.0 {
-            AmazonS3(s3) => s3.list(prefix).await?.boxed(),
+            AmazonS3(s3) => s3.list(prefix.into()).await?.boxed(),
             GoogleCloudStorage(gcs) => gcs.list(prefix).await?.boxed(),
             InMemory(in_mem) => in_mem.list(prefix).await?.boxed(),
             File(file) => file.list(prefix).await?.boxed(),
@@ -137,7 +137,7 @@ impl ObjectStore {
     ) -> Result<ListResult> {
         use ObjectStoreIntegration::*;
         match &self.0 {
-            AmazonS3(s3) => s3.list_with_delimiter(prefix, &None).await,
+            AmazonS3(s3) => s3.list_with_delimiter(prefix.into(), &None).await,
             GoogleCloudStorage(_gcs) => unimplemented!(),
             InMemory(in_mem) => in_mem.list_with_delimiter(prefix, &None).await,
             File(_file) => unimplemented!(),
