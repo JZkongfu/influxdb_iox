@@ -86,7 +86,7 @@ use data_types::{
 };
 use influxdb_line_protocol::ParsedLine;
 use mutable_buffer::MutableBufferDb;
-use object_store::{path::ObjectStorePath, ObjectStore};
+use object_store::{path::ObjectStorePath, ObjSto, ObjStoPa, ObjectStore};
 use query::{exec::Executor, Database, DatabaseStore};
 use read_buffer::Database as ReadBufferDb;
 
@@ -351,7 +351,7 @@ impl<M: ConnectionManager> Server<M> {
                     let data = segment.to_file_bytes(writer_id).context(WalError)?;
                     let store = self.store.clone();
                     let location = database_object_store_path(writer_id, db_name);
-                    let location = buffer::object_store_path_for_segment(&location, segment.id)
+                    let location = buffer::object_store_path_for_segment(location, segment.id)
                         .context(WalError)?;
                     persist_bytes_in_background(data, store, location);
                 }
@@ -537,8 +537,11 @@ fn config_location(id: u32) -> ObjectStorePath {
 }
 
 // base location in object store for a given database name
-fn database_object_store_path(writer_id: u32, database_name: &DatabaseName<'_>) -> ObjectStorePath {
-    let mut path = ObjectStorePath::default();
+fn database_object_store_path<T>(writer_id: u32, database_name: &DatabaseName<'_>) -> T
+where
+    T: object_store::ObjStoPa,
+{
+    let mut path = T::default();
     path.push_dir(format!("{}", writer_id));
     path.push_dir(database_name.to_string());
     path
@@ -567,7 +570,7 @@ fn persist_bytes_in_background(data: Bytes, store: Arc<ObjectStore>, location: O
             stream_data = std::io::Result::Ok(data.clone());
         }
 
-        info!("persisted data to {}", store.convert_path(&location));
+        info!("persisted data to {}", location.display());
     });
 }
 

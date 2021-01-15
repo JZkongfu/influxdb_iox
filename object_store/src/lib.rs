@@ -29,11 +29,89 @@ use gcp::GoogleCloudStorage;
 use memory::InMemory;
 use path::ObjectStorePath;
 
+use async_trait::async_trait;
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
-use futures::{Stream, StreamExt, TryStreamExt};
+use futures::{stream::BoxStream, Stream, StreamExt, TryStreamExt};
 use snafu::Snafu;
 use std::{io, path::PathBuf, unimplemented};
+
+#[allow(missing_docs)]
+#[async_trait]
+pub trait ObjSto: Send + Sync + 'static {
+    type Path: ObjStoPa;
+
+    /// Save the provided bytes to the specified location.
+    async fn put<S>(&self, location: &Self::Path, bytes: S, length: usize) -> Result<()>
+    where
+        S: Stream<Item = io::Result<Bytes>> + Send + Sync + 'static;
+
+    /// Return the bytes that are stored at the specified location.
+    async fn get(&self, location: &Self::Path) -> Result<BoxStream<'static, Result<Bytes>>>;
+
+    /// Delete the object at the specified location.
+    async fn delete(&self, location: &Self::Path) -> Result<()>;
+
+    /// List all the objects with the given prefix.
+    async fn list<'a>(
+        &'a self,
+        prefix: Option<&'a Self::Path>,
+    ) -> Result<BoxStream<'a, Result<Vec<Self::Path>>>>;
+
+    /// List objects with the given prefix and an implementation specific
+    /// delimiter. Returns common prefixes (directories) in addition to object
+    /// metadata.
+    async fn list_with_delimiter(&self, prefix: &Self::Path) -> Result<ListResult<Self::Path>>;
+}
+
+#[allow(missing_docs)]
+pub trait ObjStoPa: Default + Send + Sync + 'static {
+    fn push_dir(&mut self, dir: impl Into<String>);
+
+    fn push_all_dirs(&mut self, dirs: &[&str]);
+
+    fn set_file_name(&mut self, file: impl Into<String>);
+
+    /// Convert an `ObjectStorePath` to a `String` according to the appropriate
+    /// implementation. Suitable for printing; not suitable for sending to
+    /// APIs
+    fn display(&self) -> String;
+}
+
+#[async_trait]
+impl<T> ObjSto for T
+where
+    T: std::ops::Deref + Send + Sync + 'static,
+    T::Target: ObjSto,
+{
+    type Path = <T::Target as ObjSto>::Path;
+
+    async fn put<S>(&self, location: &Self::Path, bytes: S, length: usize) -> Result<()>
+    where
+        S: Stream<Item = io::Result<Bytes>> + Send + Sync + 'static,
+    {
+        T::put(self, location, bytes, length).await
+    }
+
+    async fn get(&self, location: &Self::Path) -> Result<BoxStream<'static, Result<Bytes>>> {
+        T::get(self, location).await
+    }
+
+    async fn delete(&self, location: &Self::Path) -> Result<()> {
+        T::delete(self, location).await
+    }
+
+    async fn list<'a>(
+        &'a self,
+        prefix: Option<&'a Self::Path>,
+    ) -> Result<BoxStream<'a, Result<Vec<Self::Path>>>> {
+        T::list(self, prefix).await
+    }
+
+    async fn list_with_delimiter(&self, prefix: &Self::Path) -> Result<ListResult<Self::Path>> {
+        T::list_with_delimiter(self, prefix).await
+    }
+}
 
 /// Universal interface to multiple object store services.
 #[derive(Debug)]
@@ -64,9 +142,13 @@ impl ObjectStore {
     pub fn new_microsoft_azure(azure: MicrosoftAzure) -> Self {
         Self(ObjectStoreIntegration::MicrosoftAzure(Box::new(azure)))
     }
+}
 
-    /// Save the provided bytes to the specified location.
-    pub async fn put<S>(&self, location: &ObjectStorePath, bytes: S, length: usize) -> Result<()>
+#[async_trait]
+impl ObjSto for ObjectStore {
+    type Path = ObjectStorePath;
+
+    async fn put<S>(&self, location: &Self::Path, bytes: S, length: usize) -> Result<()>
     where
         S: Stream<Item = io::Result<Bytes>> + Send + Sync + 'static,
     {
@@ -82,24 +164,18 @@ impl ObjectStore {
         Ok(())
     }
 
-    /// Return the bytes that are stored at the specified location.
-    pub async fn get(
-        &self,
-        location: &ObjectStorePath,
-    ) -> Result<impl Stream<Item = Result<Bytes>>> {
+    async fn get(&self, location: &Self::Path) -> Result<BoxStream<'static, Result<Bytes>>> {
         use ObjectStoreIntegration::*;
         Ok(match &self.0 {
-            AmazonS3(s3) => s3.get(location).await?.boxed(),
-            GoogleCloudStorage(gcs) => gcs.get(location).await?.boxed(),
-            InMemory(in_mem) => in_mem.get(location).await?.boxed(),
-            File(file) => file.get(location).await?.boxed(),
-            MicrosoftAzure(azure) => azure.get(location).await?.boxed(),
-        }
-        .err_into())
+            AmazonS3(s3) => s3.get(location).await?.err_into().boxed(),
+            GoogleCloudStorage(gcs) => gcs.get(location).await?.err_into().boxed(),
+            InMemory(in_mem) => in_mem.get(location).await?.err_into().boxed(),
+            File(file) => file.get(location).await?.err_into().boxed(),
+            MicrosoftAzure(azure) => azure.get(location).await?.err_into().boxed(),
+        })
     }
 
-    /// Delete the object at the specified location.
-    pub async fn delete(&self, location: &ObjectStorePath) -> Result<()> {
+    async fn delete(&self, location: &Self::Path) -> Result<()> {
         use ObjectStoreIntegration::*;
         match &self.0 {
             AmazonS3(s3) => s3.delete(location).await?,
@@ -112,29 +188,21 @@ impl ObjectStore {
         Ok(())
     }
 
-    /// List all the objects with the given prefix.
-    pub async fn list<'a>(
+    async fn list<'a>(
         &'a self,
-        prefix: Option<&'a ObjectStorePath>,
-    ) -> Result<impl Stream<Item = Result<Vec<ObjectStorePath>>> + 'a> {
+        prefix: Option<&'a Self::Path>,
+    ) -> Result<BoxStream<'a, Result<Vec<Self::Path>>>> {
         use ObjectStoreIntegration::*;
         Ok(match &self.0 {
-            AmazonS3(s3) => s3.list(prefix).await?.boxed(),
-            GoogleCloudStorage(gcs) => gcs.list(prefix).await?.boxed(),
-            InMemory(in_mem) => in_mem.list(prefix).await?.boxed(),
-            File(file) => file.list(prefix).await?.boxed(),
-            MicrosoftAzure(azure) => azure.list(prefix).await?.boxed(),
-        }
-        .err_into())
+            AmazonS3(s3) => s3.list(prefix).await?.err_into().boxed(),
+            GoogleCloudStorage(gcs) => gcs.list(prefix).await?.err_into().boxed(),
+            InMemory(in_mem) => in_mem.list(prefix).await?.err_into().boxed(),
+            File(file) => file.list(prefix).await?.err_into().boxed(),
+            MicrosoftAzure(azure) => azure.list(prefix).await?.err_into().boxed(),
+        })
     }
 
-    /// List objects with the given prefix and an implementation specific
-    /// delimiter. Returns common prefixes (directories) in addition to object
-    /// metadata.
-    pub async fn list_with_delimiter<'a>(
-        &'a self,
-        prefix: &'a ObjectStorePath,
-    ) -> Result<ListResult> {
+    async fn list_with_delimiter(&self, prefix: &Self::Path) -> Result<ListResult<Self::Path>> {
         use ObjectStoreIntegration::*;
         match &self.0 {
             AmazonS3(s3) => s3.list_with_delimiter(prefix, &None).await,
@@ -142,21 +210,6 @@ impl ObjectStore {
             InMemory(in_mem) => in_mem.list_with_delimiter(prefix, &None).await,
             File(_file) => unimplemented!(),
             MicrosoftAzure(_azure) => unimplemented!(),
-        }
-    }
-
-    /// Convert an `ObjectStorePath` to a `String` according to the appropriate
-    /// implementation. Suitable for printing; not suitable for sending to
-    /// APIs
-    pub fn convert_path(&self, path: &ObjectStorePath) -> String {
-        use ObjectStoreIntegration::*;
-        match &self.0 {
-            AmazonS3(_) | GoogleCloudStorage(_) | InMemory(_) | MicrosoftAzure(_) => {
-                path::cloud::CloudConverter::convert(path)
-            }
-            File(_) => path::file::FileConverter::convert(path)
-                .display()
-                .to_string(),
         }
     }
 }
@@ -180,20 +233,20 @@ pub enum ObjectStoreIntegration {
 /// token for the next set of results. Individual results sets are limited to
 /// 1,000 objects.
 #[derive(Debug)]
-pub struct ListResult {
+pub struct ListResult<P> {
     /// Token passed to the API for the next page of list results.
     pub next_token: Option<String>,
     /// Prefixes that are common (like directories)
-    pub common_prefixes: Vec<ObjectStorePath>,
+    pub common_prefixes: Vec<P>, // TODO: why is this a vec instead of just the path?
     /// Object metadata for the listing
-    pub objects: Vec<ObjectMeta>,
+    pub objects: Vec<ObjectMeta<P>>,
 }
 
 /// The metadata that describes an object.
 #[derive(Debug)]
-pub struct ObjectMeta {
+pub struct ObjectMeta<P> {
     /// The full path to the object
-    pub location: ObjectStorePath,
+    pub location: P,
     /// The last modified time
     pub last_modified: DateTime<Utc>,
     /// The size in bytes of the object

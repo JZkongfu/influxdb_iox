@@ -199,7 +199,7 @@ impl AmazonS3 {
         &'a self,
         prefix: &'a ObjectStorePath,
         next_token: &Option<String>,
-    ) -> Result<ListResult> {
+    ) -> Result<ListResult<ObjectStorePath>> {
         let converted_prefix = CloudConverter::convert(prefix);
 
         let mut list_request = rusoto_s3::ListObjectsV2Request {

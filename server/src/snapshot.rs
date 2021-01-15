@@ -5,7 +5,7 @@ use arrow_deps::{
     parquet::{self, arrow::ArrowWriter, file::writer::TryClone},
 };
 use data_types::partition_metadata::{Partition as PartitionMeta, Table};
-use object_store::{path::ObjectStorePath, ObjectStore};
+use object_store::{path::ObjectStorePath, ObjSto, ObjStoPa, ObjectStore};
 use query::PartitionChunk;
 
 use std::io::{Cursor, Seek, SeekFrom, Write};
@@ -102,7 +102,7 @@ where
     }
 
     fn data_path(&self) -> String {
-        self.store.convert_path(&self.data_path)
+        self.data_path.display() // TODO suspicious
     }
 
     // returns the position of the next table

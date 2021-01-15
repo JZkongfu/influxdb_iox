@@ -5,7 +5,6 @@ use data_types::{
     database_rules::{WalBufferRollover, WriterId},
 };
 use generated_types::wal;
-use object_store::path::ObjectStorePath;
 
 use std::{
     collections::BTreeMap,
@@ -478,10 +477,10 @@ const SEGMENT_FILE_EXTENSION: &str = ".segment";
 
 /// Builds the path for a given segment id, given the root object store path.
 /// The path should be where the root of the database is (e.g. 1/my_db/).
-pub fn object_store_path_for_segment(
-    root_path: &ObjectStorePath,
-    segment_id: u64,
-) -> Result<ObjectStorePath> {
+pub fn object_store_path_for_segment<T>(root_path: T, segment_id: u64) -> Result<T>
+where
+    T: object_store::ObjStoPa,
+{
     ensure!(
         segment_id < MAX_SEGMENT_ID && segment_id > 0,
         SegmentIdOutOfBounds
@@ -493,7 +492,7 @@ pub fn object_store_path_for_segment(
     let thousands = thousands_place * 1_000;
     let hundreds_place = segment_id - millions - thousands;
 
-    let mut path = root_path.clone();
+    let mut path = root_path;
     path.push_all_dirs(&[
         WAL_DIR,
         &format!("{:03}", millions_place),

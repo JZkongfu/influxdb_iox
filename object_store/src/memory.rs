@@ -115,7 +115,7 @@ impl InMemory {
         &'a self,
         prefix: &'a ObjectStorePath,
         _next_token: &Option<String>,
-    ) -> Result<ListResult> {
+    ) -> Result<ListResult<ObjectStorePath>> {
         let mut common_prefixes = BTreeSet::new();
         let last_modified = Utc::now();
 

@@ -1,6 +1,7 @@
 //! This module contains code for abstracting object locations that work
 //! across different backing implementations and platforms.
 
+use crate::ObjStoPa;
 use std::{mem, path::PathBuf};
 
 /// Paths that came from or are to be used in cloud-based object storage
@@ -121,6 +122,32 @@ impl From<DirsAndFileName> for ObjectStorePath {
         Self {
             inner: PathRepresentation::Parts(other),
         }
+    }
+}
+
+impl ObjStoPa for ObjectStorePath {
+    fn push_dir(&mut self, _dir: impl Into<String>) {
+        todo!()
+    }
+
+    fn push_all_dirs(&mut self, _dirs: &[&str]) {
+        todo!()
+    }
+
+    fn set_file_name(&mut self, _file: impl Into<String>) {
+        todo!()
+    }
+
+    fn display(&self) -> String {
+        todo!()
+        // match &self.0 {
+        //     AmazonS3(_) | GoogleCloudStorage(_) | InMemory(_) |
+        // MicrosoftAzure(_) => {         path::cloud::CloudConverter::
+        // convert(path)     }
+        //     File(_) => path::file::FileConverter::convert(path)
+        //         .display()
+        //         .to_string(),
+        // }
     }
 }
 
