@@ -1,9 +1,31 @@
-use super::{ObjectStorePath, PathPart, PathRepresentation, DELIMITER};
+use super::{Osp, PathPart};
 
+/// A path stored as a collection of 0 or more directories and 0 or 1 file name
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
-pub(crate) struct DirsAndFileName {
+pub struct DirsAndFileName {
     pub(crate) directories: Vec<PathPart>,
     pub(crate) file_name: Option<PathPart>,
+}
+
+impl Osp for DirsAndFileName {
+    fn set_file_name(&mut self, name: impl Into<String>) {
+        let name = name.into();
+        self.file_name = Some((&*name).into());
+    }
+
+    fn push_dir(&mut self, part: impl Into<String>) {
+        let part = part.into();
+        self.directories.push((&*part).into());
+    }
+
+    fn push_all_dirs<'a>(&mut self, parts: impl AsRef<[&'a str]>) {
+        self.directories
+            .extend(parts.as_ref().iter().map(|&v| v.into()));
+    }
+
+    fn display(&self) -> String {
+        todo!()
+    }
 }
 
 impl DirsAndFileName {
@@ -82,91 +104,9 @@ impl DirsAndFileName {
         Some(parts)
     }
 
-    /// Add a part to the end of the path's directories, encoding any restricted
-    /// characters.
-    pub(crate) fn push_dir(&mut self, part: impl Into<String>) {
-        let part = part.into();
-        self.directories.push((&*part).into());
-    }
-
-    /// Push a bunch of parts as directories in one go.
-    pub(crate) fn push_all_dirs<'a>(&mut self, parts: impl AsRef<[&'a str]>) {
-        self.directories
-            .extend(parts.as_ref().iter().map(|&v| v.into()));
-    }
-
     /// Add a `PathPart` to the end of the path's directories.
     pub(crate) fn push_part_as_dir(&mut self, part: &PathPart) {
         self.directories.push(part.to_owned());
-    }
-
-    pub(crate) fn set_file_name(&mut self, name: impl Into<String>) {
-        let name = name.into();
-        self.file_name = Some((&*name).into());
-    }
-}
-
-impl From<PathRepresentation> for DirsAndFileName {
-    fn from(path_rep: PathRepresentation) -> Self {
-        match path_rep {
-            PathRepresentation::RawCloud(path) => {
-                let mut parts: Vec<PathPart> = path
-                    .split_terminator(DELIMITER)
-                    .map(|s| PathPart(s.to_string()))
-                    .collect();
-                let maybe_file_name = match parts.pop() {
-                    Some(file) if file.encoded().contains('.') => Some(file),
-                    Some(dir) => {
-                        parts.push(dir);
-                        None
-                    }
-                    None => None,
-                };
-                Self {
-                    directories: parts,
-                    file_name: maybe_file_name,
-                }
-            }
-            PathRepresentation::RawPathBuf(path) => {
-                let mut parts: Vec<PathPart> = path
-                    .iter()
-                    .flat_map(|s| s.to_os_string().into_string().map(PathPart))
-                    .collect();
-
-                let maybe_file_name = match parts.pop() {
-                    Some(file)
-                        if !file.encoded().starts_with('.')
-                            && (file.encoded().ends_with(".json")
-                                || file.encoded().ends_with(".parquet")
-                                || file.encoded().ends_with(".segment")) =>
-                    {
-                        Some(file)
-                    }
-                    Some(dir) => {
-                        parts.push(dir);
-                        None
-                    }
-                    None => None,
-                };
-                Self {
-                    directories: parts,
-                    file_name: maybe_file_name,
-                }
-            }
-            PathRepresentation::Parts(dirs_and_file_name) => dirs_and_file_name,
-        }
-    }
-}
-
-impl From<&'_ ObjectStorePath> for DirsAndFileName {
-    fn from(other: &'_ ObjectStorePath) -> Self {
-        other.clone().into()
-    }
-}
-
-impl From<ObjectStorePath> for DirsAndFileName {
-    fn from(other: ObjectStorePath) -> Self {
-        other.inner.into()
     }
 }
 
@@ -216,5 +156,121 @@ mod tests {
         let prefix = existing_path.clone();
         let parts = existing_path.parts_after_prefix(&prefix).unwrap();
         assert!(parts.is_empty());
+    }
+
+    #[test]
+    fn prefix_matches() {
+        let mut haystack = DirsAndFileName::default();
+        haystack.push_all_dirs(&["foo/bar", "baz%2Ftest", "something"]);
+
+        // self starts with self
+        assert!(
+            haystack.prefix_matches(&haystack),
+            "{:?} should have started with {:?}",
+            haystack,
+            haystack
+        );
+
+        // a longer prefix doesn't match
+        let mut needle = haystack.clone();
+        needle.push_dir("longer now");
+        assert!(
+            !haystack.prefix_matches(&needle),
+            "{:?} shouldn't have started with {:?}",
+            haystack,
+            needle
+        );
+
+        // one dir prefix matches
+        let mut needle = DirsAndFileName::default();
+        needle.push_dir("foo/bar");
+        assert!(
+            haystack.prefix_matches(&needle),
+            "{:?} should have started with {:?}",
+            haystack,
+            needle
+        );
+
+        // two dir prefix matches
+        needle.push_dir("baz%2Ftest");
+        assert!(
+            haystack.prefix_matches(&needle),
+            "{:?} should have started with {:?}",
+            haystack,
+            needle
+        );
+
+        // partial dir prefix matches
+        let mut needle = DirsAndFileName::default();
+        needle.push_dir("f");
+        assert!(
+            haystack.prefix_matches(&needle),
+            "{:?} should have started with {:?}",
+            haystack,
+            needle
+        );
+
+        // one dir and one partial dir matches
+        let mut needle = DirsAndFileName::default();
+        needle.push_all_dirs(&["foo/bar", "baz"]);
+        assert!(
+            haystack.prefix_matches(&needle),
+            "{:?} should have started with {:?}",
+            haystack,
+            needle
+        );
+    }
+
+    #[test]
+    fn prefix_matches_with_file_name() {
+        let mut haystack = DirsAndFileName::default();
+        haystack.push_all_dirs(&["foo/bar", "baz%2Ftest", "something"]);
+
+        let mut needle = haystack.clone();
+
+        // All directories match and file name is a prefix
+        haystack.set_file_name("foo.segment");
+        needle.set_file_name("foo");
+
+        assert!(
+            haystack.prefix_matches(&needle),
+            "{:?} should have started with {:?}",
+            haystack,
+            needle
+        );
+
+        // All directories match but file name is not a prefix
+        needle.set_file_name("e");
+
+        assert!(
+            !haystack.prefix_matches(&needle),
+            "{:?} should not have started with {:?}",
+            haystack,
+            needle
+        );
+
+        // Not all directories match; file name is a prefix of the next directory; this
+        // matches
+        let mut needle = DirsAndFileName::default();
+        needle.push_all_dirs(&["foo/bar", "baz%2Ftest"]);
+        needle.set_file_name("s");
+
+        assert!(
+            haystack.prefix_matches(&needle),
+            "{:?} should have started with {:?}",
+            haystack,
+            needle
+        );
+
+        // Not all directories match; file name is NOT a prefix of the next directory;
+        // no match
+        needle.set_file_name("p");
+
+        assert!(
+            !haystack.prefix_matches(&needle),
+            "{:?} should not have started with {:?}",
+            haystack,
+            needle
+        );
     }
 }

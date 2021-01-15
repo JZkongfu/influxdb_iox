@@ -17,7 +17,7 @@ use data_types::{
     DatabaseName,
 };
 use influxdb_line_protocol::parse_lines;
-use object_store::path::ObjectStorePath;
+use object_store::path::{ObjectStorePath, Osp};
 use query::{frontend::sql::SQLQueryPlanner, Database, DatabaseStore};
 use server::{ConnectionManager, Server as AppServer};
 

@@ -477,7 +477,7 @@ const SEGMENT_FILE_EXTENSION: &str = ".segment";
 
 /// Builds the path for a given segment id, given the root object store path.
 /// The path should be where the root of the database is (e.g. 1/my_db/).
-pub fn object_store_path_for_segment<T>(root_path: T, segment_id: u64) -> Result<T>
+pub fn object_store_path_for_segment<T>(root_path: &T, segment_id: u64) -> Result<T>
 where
     T: object_store::path::Osp,
 {
@@ -492,7 +492,7 @@ where
     let thousands = thousands_place * 1_000;
     let hundreds_place = segment_id - millions - thousands;
 
-    let mut path = root_path;
+    let mut path = root_path.clone();
     path.push_all_dirs(&[
         WAL_DIR,
         &format!("{:03}", millions_place),
@@ -508,7 +508,7 @@ mod tests {
     use super::*;
     use data_types::{data::lines_to_replicated_write, database_rules::DatabaseRules};
     use influxdb_line_protocol::parse_lines;
-    use object_store::path::CloudConverter;
+    use object_store::path::{ObjectStorePath, Osp};
 
     #[test]
     fn append_increments_current_size_and_uses_existing_segment() {
@@ -816,32 +816,39 @@ mod tests {
 
     #[test]
     fn object_store_path_for_segment() {
-        let path = ObjectStorePath::from_cloud_unchecked("1/mydb");
-        let segment_path = super::object_store_path_for_segment(&path, 23).unwrap();
-        let segment_path = CloudConverter::convert(&segment_path);
+        let mut base_path = ObjectStorePath::default();
+        base_path.push_all_dirs(&["1", "mydb"]);
 
-        assert_eq!(segment_path, "1/mydb/wal/000/000/023.segment");
+        let segment_path = super::object_store_path_for_segment(&base_path, 23).unwrap();
+        let mut expected_segment_path = base_path.clone();
+        expected_segment_path.push_all_dirs(&["wal", "000", "000"]);
+        expected_segment_path.set_file_name("023.segment");
+        assert_eq!(segment_path, expected_segment_path);
 
-        let segment_path = super::object_store_path_for_segment(&path, 20_003).unwrap();
-        let segment_path = CloudConverter::convert(&segment_path);
+        let segment_path = super::object_store_path_for_segment(&base_path, 20_003).unwrap();
+        let mut expected_segment_path = base_path.clone();
+        expected_segment_path.push_all_dirs(&["wal", "000", "020"]);
+        expected_segment_path.set_file_name("003.segment");
+        assert_eq!(segment_path, expected_segment_path);
 
-        assert_eq!(segment_path, "1/mydb/wal/000/020/003.segment");
-
-        let segment_path = super::object_store_path_for_segment(&path, 45_010_105).unwrap();
-        let segment_path = CloudConverter::convert(&segment_path);
-
-        assert_eq!(segment_path, "1/mydb/wal/045/010/105.segment");
+        let segment_path = super::object_store_path_for_segment(&base_path, 45_010_105).unwrap();
+        let mut expected_segment_path = base_path.clone();
+        expected_segment_path.push_all_dirs(&["wal", "045", "010"]);
+        expected_segment_path.set_file_name("105.segment");
+        assert_eq!(segment_path, expected_segment_path);
     }
 
     #[test]
     fn object_store_path_for_segment_out_of_bounds() {
-        let path = ObjectStorePath::from_cloud_unchecked("1/mydb");
-        let segment_path = super::object_store_path_for_segment(&path, 0)
+        let mut base_path = ObjectStorePath::default();
+        base_path.push_all_dirs(&["1", "mydb"]);
+
+        let segment_path = super::object_store_path_for_segment(&base_path, 0)
             .err()
             .unwrap();
         matches!(segment_path, Error::SegmentIdOutOfBounds);
 
-        let segment_path = super::object_store_path_for_segment(&path, 23_000_000_000)
+        let segment_path = super::object_store_path_for_segment(&base_path, 23_000_000_000)
             .err()
             .unwrap();
         matches!(segment_path, Error::SegmentIdOutOfBounds);

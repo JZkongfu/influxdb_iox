@@ -68,6 +68,11 @@ impl FilePath {
     pub fn push_path(&mut self, path: &Self) {
         self.inner = mem::take(&mut self.inner).push_path(path)
     }
+
+    /// Whether the prefix is the start of this path or not.
+    pub fn prefix_matches(&self, prefix: &Self) -> bool {
+        self.inner.prefix_matches(&prefix.inner)
+    }
 }
 
 impl From<FilePath> for DirsAndFileName {
@@ -156,6 +161,26 @@ impl FilePathRepresentation {
         dirs_and_file_name.file_name = path_file_name;
 
         Self::Parsed(dirs_and_file_name)
+    }
+
+    fn prefix_matches(&self, prefix: &Self) -> bool {
+        use FilePathRepresentation::*;
+        match (self, prefix) {
+            (Parsed(self_parts), Parsed(prefix_parts)) => self_parts.prefix_matches(prefix_parts),
+            (Parsed(self_parts), _) => {
+                let prefix_parts: DirsAndFileName = prefix.to_owned().into();
+                self_parts.prefix_matches(&prefix_parts)
+            }
+            (_, Parsed(prefix_parts)) => {
+                let self_parts: DirsAndFileName = self.to_owned().into();
+                self_parts.prefix_matches(prefix_parts)
+            }
+            _ => {
+                let self_parts: DirsAndFileName = self.to_owned().into();
+                let prefix_parts: DirsAndFileName = prefix.to_owned().into();
+                self_parts.prefix_matches(&prefix_parts)
+            }
+        }
     }
 }
 

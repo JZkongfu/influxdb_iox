@@ -86,7 +86,10 @@ use data_types::{
 };
 use influxdb_line_protocol::ParsedLine;
 use mutable_buffer::MutableBufferDb;
-use object_store::{path::{ObjectStorePath, Osp}, ObjSto, ObjectStore};
+use object_store::{
+    path::{ObjectStorePath, Osp},
+    ObjSto, ObjectStore,
+};
 use query::{exec::Executor, Database, DatabaseStore};
 use read_buffer::Database as ReadBufferDb;
 
@@ -351,7 +354,7 @@ impl<M: ConnectionManager> Server<M> {
                     let data = segment.to_file_bytes(writer_id).context(WalError)?;
                     let store = self.store.clone();
                     let location = database_object_store_path(writer_id, db_name);
-                    let location = buffer::object_store_path_for_segment(location, segment.id)
+                    let location = buffer::object_store_path_for_segment(&location, segment.id)
                         .context(WalError)?;
                     persist_bytes_in_background(data, store, location);
                 }
@@ -930,7 +933,10 @@ partition_key:
         // write lines should have caused a segment rollover and persist, wait
         tokio::task::yield_now().await;
 
-        let path = ObjectStorePath::from_cloud_unchecked("1/my_db/wal/000/000/001.segment");
+        let mut path = store.new_path();
+        path.push_all_dirs(&["1", "my_db", "wal", "000", "000"]);
+        path.set_file_name("001.segment");
+
         let data = store
             .get(&path)
             .await
