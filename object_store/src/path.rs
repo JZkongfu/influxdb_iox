@@ -48,6 +48,17 @@ pub struct ObjectStorePath {
     inner: PathRepresentation,
 }
 
+impl From<ObjectStorePath> for cloud::CloudPath {
+    fn from(object_store_path: ObjectStorePath) -> Self {
+        use PathRepresentation::*;
+        match object_store_path.inner {
+            RawCloud(path) => cloud::CloudPath::raw(path),
+            RawPathBuf(_) => unreachable!(),
+            Parts(parts) => parts.into(),
+        }
+    }
+}
+
 impl ObjectStorePath {
     /// For use when receiving a path from an object store API directly, not
     /// when building a path. Assumes DELIMITER is the separator.

@@ -1,7 +1,7 @@
 //! This module contains the IOx implementation for using S3 as the object
 //! store.
 use crate::{
-    path::{CloudConverter, ObjectStorePath, DELIMITER},
+    path::{cloud::CloudPath, CloudConverter, ObjectStorePath, DELIMITER},
     Error, ListResult, NoDataFromS3, ObjectMeta, Result, UnableToDeleteDataFromS3,
     UnableToGetDataFromS3, UnableToGetPieceOfDataFromS3, UnableToPutDataToS3,
 };
@@ -59,11 +59,13 @@ impl AmazonS3 {
     where
         S: Stream<Item = io::Result<Bytes>> + Send + Sync + 'static,
     {
+        let location: CloudPath = location.to_owned().into();
+
         let bytes = ByteStream::new_with_size(bytes, length);
 
         let put_request = rusoto_s3::PutObjectRequest {
             bucket: self.bucket_name.clone(),
-            key: CloudConverter::convert(&location),
+            key: location.to_raw(),
             body: Some(bytes),
             ..Default::default()
         };
@@ -73,7 +75,7 @@ impl AmazonS3 {
             .await
             .context(UnableToPutDataToS3 {
                 bucket: &self.bucket_name,
-                location: CloudConverter::convert(&location),
+                location: location.to_raw(),
             })?;
         Ok(())
     }
@@ -83,7 +85,9 @@ impl AmazonS3 {
         &self,
         location: &ObjectStorePath,
     ) -> Result<impl Stream<Item = Result<Bytes>>> {
-        let key = CloudConverter::convert(&location);
+        let location: CloudPath = location.to_owned().into();
+
+        let key = location.to_raw();
         let get_request = rusoto_s3::GetObjectRequest {
             bucket: self.bucket_name.clone(),
             key: key.clone(),
@@ -111,7 +115,9 @@ impl AmazonS3 {
 
     /// Delete the object at the specified location.
     pub async fn delete(&self, location: &ObjectStorePath) -> Result<()> {
-        let key = CloudConverter::convert(&location);
+        let location: CloudPath = location.to_owned().into();
+
+        let key = location.to_raw();
         let delete_request = rusoto_s3::DeleteObjectRequest {
             bucket: self.bucket_name.clone(),
             key: key.clone(),
@@ -200,7 +206,9 @@ impl AmazonS3 {
         prefix: &'a ObjectStorePath,
         next_token: &Option<String>,
     ) -> Result<ListResult<ObjectStorePath>> {
-        let converted_prefix = CloudConverter::convert(prefix);
+        let prefix: CloudPath = prefix.to_owned().into();
+
+        let converted_prefix = prefix.to_raw();
 
         let mut list_request = rusoto_s3::ListObjectsV2Request {
             bucket: self.bucket_name.clone(),

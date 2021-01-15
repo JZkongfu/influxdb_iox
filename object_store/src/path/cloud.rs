@@ -4,8 +4,10 @@ use std::mem;
 
 use itertools::Itertools;
 
+/// An object storage location suitable for passing to cloud storage APIs such
+/// as AWS, GCS, and Azure.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-struct CloudPath {
+pub struct CloudPath {
     inner: CloudPathRepresentation,
 }
 
@@ -67,6 +69,14 @@ impl CloudPath {
 impl From<CloudPath> for DirsAndFileName {
     fn from(cloud_path: CloudPath) -> Self {
         cloud_path.inner.into()
+    }
+}
+
+impl From<DirsAndFileName> for CloudPath {
+    fn from(dirs_and_file_name: DirsAndFileName) -> Self {
+        Self {
+            inner: CloudPathRepresentation::Parsed(dirs_and_file_name),
+        }
     }
 }
 
