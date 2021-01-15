@@ -479,7 +479,7 @@ const SEGMENT_FILE_EXTENSION: &str = ".segment";
 /// The path should be where the root of the database is (e.g. 1/my_db/).
 pub fn object_store_path_for_segment<T>(root_path: T, segment_id: u64) -> Result<T>
 where
-    T: object_store::ObjStoPa,
+    T: object_store::path::Osp,
 {
     ensure!(
         segment_id < MAX_SEGMENT_ID && segment_id > 0,
@@ -508,7 +508,7 @@ mod tests {
     use super::*;
     use data_types::{data::lines_to_replicated_write, database_rules::DatabaseRules};
     use influxdb_line_protocol::parse_lines;
-    use object_store::path::cloud::CloudConverter;
+    use object_store::path::CloudConverter;
 
     #[test]
     fn append_increments_current_size_and_uses_existing_segment() {

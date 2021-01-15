@@ -1,7 +1,7 @@
 //! This module contains code for abstracting object locations that work
 //! across different backing implementations and platforms.
+use itertools::Itertools;
 
-use crate::ObjStoPa;
 use std::{mem, path::PathBuf};
 
 /// Paths that came from or are to be used in cloud-based object storage
@@ -25,6 +25,24 @@ use parts::PathPart;
 ///
 /// Deliberately does not implement `Display` or `ToString`! Use one of the
 /// converters.
+pub trait Osp: Default + PartialEq + Eq + Send + Sync + 'static {
+    /// Set the file name of this path
+    fn set_file_name(&mut self, part: impl Into<String>);
+
+    /// Add a part to the end of the path's directories, encoding any restricted
+    /// characters.
+    fn push_dir(&mut self, part: impl Into<String>);
+
+    /// Push a bunch of parts as directories in one go.
+    fn push_all_dirs<'a>(&mut self, parts: impl AsRef<[&'a str]>);
+
+    /// Convert an `ObjectStorePath` to a `String` according to the appropriate
+    /// implementation. Suitable for printing; not suitable for sending to
+    /// APIs
+    fn display(&self) -> String;
+}
+
+/// Slated for removal
 #[derive(Default, Clone, PartialEq, Eq, Debug)]
 pub struct ObjectStorePath {
     inner: PathRepresentation,
@@ -125,12 +143,12 @@ impl From<DirsAndFileName> for ObjectStorePath {
     }
 }
 
-impl ObjStoPa for ObjectStorePath {
+impl Osp for ObjectStorePath {
     fn push_dir(&mut self, _dir: impl Into<String>) {
         todo!()
     }
 
-    fn push_all_dirs(&mut self, _dirs: &[&str]) {
+    fn push_all_dirs<'a>(&mut self, parts: impl AsRef<[&'a str]>) {
         todo!()
     }
 
@@ -243,6 +261,40 @@ impl PartialEq for PathRepresentation {
 
 /// The delimiter to separate object namespaces, creating a directory structure.
 pub const DELIMITER: &str = "/";
+
+/// Converts `ObjectStorePath`s to `String`s that are appropriate for use as
+/// locations in cloud storage.
+#[derive(Debug, Clone, Copy)]
+pub struct CloudConverter {}
+
+impl CloudConverter {
+    /// Creates a cloud storage location by joining this `ObjectStorePath`'s
+    /// Creates a cloud storage location by joining this `CloudPath`'s
+    /// parts with `DELIMITER`
+    pub fn convert(object_store_path: &ObjectStorePath) -> String {
+        match &object_store_path.inner {
+            PathRepresentation::RawCloud(path) => path.to_owned(),
+            PathRepresentation::RawPathBuf(_path) => {
+                todo!("convert");
+            }
+            PathRepresentation::Parts(dirs_and_file_name) => {
+                let mut path = dirs_and_file_name
+                    .directories
+                    .iter()
+                    .map(PathPart::encoded)
+                    .join(DELIMITER);
+
+                if !path.is_empty() {
+                    path.push_str(DELIMITER);
+                }
+                if let Some(file_name) = &dirs_and_file_name.file_name {
+                    path.push_str(file_name.encoded());
+                }
+                path
+            }
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -374,37 +426,6 @@ mod tests {
             haystack,
             needle
         );
-    }
-
-    #[test]
-    fn convert_raw_before_partial_eq() {
-        // dir and file_name
-        let cloud = ObjectStorePath::from_cloud_unchecked("test_dir/test_file.json");
-        let mut built = ObjectStorePath::default();
-        built.push_dir("test_dir");
-        built.set_file_name("test_file.json");
-
-        assert_eq!(built, cloud);
-
-        // dir, no file_name
-        let cloud = ObjectStorePath::from_cloud_unchecked("test_dir");
-        let mut built = ObjectStorePath::default();
-        built.push_dir("test_dir");
-
-        assert_eq!(built, cloud);
-
-        // file_name, no dir
-        let cloud = ObjectStorePath::from_cloud_unchecked("test_file.json");
-        let mut built = ObjectStorePath::default();
-        built.set_file_name("test_file.json");
-
-        assert_eq!(built, cloud);
-
-        // empty
-        let cloud = ObjectStorePath::from_cloud_unchecked("");
-        let built = ObjectStorePath::default();
-
-        assert_eq!(built, cloud);
     }
 
     #[test]

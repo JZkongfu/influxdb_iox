@@ -86,7 +86,7 @@ use data_types::{
 };
 use influxdb_line_protocol::ParsedLine;
 use mutable_buffer::MutableBufferDb;
-use object_store::{path::ObjectStorePath, ObjSto, ObjStoPa, ObjectStore};
+use object_store::{path::{ObjectStorePath, Osp}, ObjSto, ObjectStore};
 use query::{exec::Executor, Database, DatabaseStore};
 use read_buffer::Database as ReadBufferDb;
 
@@ -539,7 +539,7 @@ fn config_location(id: u32) -> ObjectStorePath {
 // base location in object store for a given database name
 fn database_object_store_path<T>(writer_id: u32, database_name: &DatabaseName<'_>) -> T
 where
-    T: object_store::ObjStoPa,
+    T: object_store::path::Osp,
 {
     let mut path = T::default();
     path.push_dir(format!("{}", writer_id));

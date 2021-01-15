@@ -99,6 +99,11 @@ impl DirsAndFileName {
     pub(crate) fn push_part_as_dir(&mut self, part: &PathPart) {
         self.directories.push(part.to_owned());
     }
+
+    pub(crate) fn set_file_name(&mut self, name: impl Into<String>) {
+        let name = name.into();
+        self.file_name = Some((&*name).into());
+    }
 }
 
 impl From<PathRepresentation> for DirsAndFileName {

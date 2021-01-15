@@ -39,7 +39,7 @@ use std::{io, path::PathBuf, unimplemented};
 #[allow(missing_docs)]
 #[async_trait]
 pub trait ObjSto: Send + Sync + 'static {
-    type Path: ObjStoPa;
+    type Path: path::Osp;
 
     /// Save the provided bytes to the specified location.
     async fn put<S>(&self, location: &Self::Path, bytes: S, length: usize) -> Result<()>
@@ -62,20 +62,6 @@ pub trait ObjSto: Send + Sync + 'static {
     /// delimiter. Returns common prefixes (directories) in addition to object
     /// metadata.
     async fn list_with_delimiter(&self, prefix: &Self::Path) -> Result<ListResult<Self::Path>>;
-}
-
-#[allow(missing_docs)]
-pub trait ObjStoPa: Default + Send + Sync + 'static {
-    fn push_dir(&mut self, dir: impl Into<String>);
-
-    fn push_all_dirs(&mut self, dirs: &[&str]);
-
-    fn set_file_name(&mut self, file: impl Into<String>);
-
-    /// Convert an `ObjectStorePath` to a `String` according to the appropriate
-    /// implementation. Suitable for printing; not suitable for sending to
-    /// APIs
-    fn display(&self) -> String;
 }
 
 #[async_trait]

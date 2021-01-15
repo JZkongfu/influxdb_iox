@@ -5,7 +5,7 @@ use arrow_deps::{
     parquet::{self, arrow::ArrowWriter, file::writer::TryClone},
 };
 use data_types::partition_metadata::{Partition as PartitionMeta, Table};
-use object_store::{path::ObjectStorePath, ObjSto, ObjStoPa, ObjectStore};
+use object_store::{path::{ObjectStorePath, Osp}, ObjSto, ObjectStore};
 use query::PartitionChunk;
 
 use std::io::{Cursor, Seek, SeekFrom, Write};
