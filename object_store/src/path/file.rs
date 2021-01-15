@@ -59,6 +59,15 @@ impl FilePath {
             }
         }
     }
+
+    /// Add the parts of `path` to the end of this path. Notably does
+    /// *not* behave as `PathBuf::push` does: there is no way to replace the
+    /// root. If `self` has a file name, that will be removed, then the
+    /// directories of `path` will be appended, then any file name of `path`
+    /// will be assigned to `self`.
+    pub fn push_path(&mut self, path: &Self) {
+        self.inner = mem::take(&mut self.inner).push_path(path)
+    }
 }
 
 impl From<FilePath> for DirsAndFileName {
@@ -128,6 +137,24 @@ impl FilePathRepresentation {
         let mut dirs_and_file_name: DirsAndFileName = self.into();
 
         dirs_and_file_name.set_file_name(part);
+        Self::Parsed(dirs_and_file_name)
+    }
+
+    /// Add the parts of `path` to the end of this path. Notably does
+    /// *not* behave as `PathBuf::push` does: there is no way to replace the
+    /// root. If `self` has a file name, that will be removed, then the
+    /// directories of `path` will be appended, then any file name of `path`
+    /// will be assigned to `self`.
+    fn push_path(self, path: &FilePath) -> Self {
+        let DirsAndFileName {
+            directories: path_dirs,
+            file_name: path_file_name,
+        } = path.inner.to_owned().into();
+        let mut dirs_and_file_name: DirsAndFileName = self.into();
+
+        dirs_and_file_name.directories.extend(path_dirs);
+        dirs_and_file_name.file_name = path_file_name;
+
         Self::Parsed(dirs_and_file_name)
     }
 }
