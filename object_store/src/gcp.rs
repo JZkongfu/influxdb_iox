@@ -1,10 +1,9 @@
 //! This module contains the IOx implementation for using Google Cloud Storage
 //! as the object store.
 use crate::{
-    path::{cloud::CloudConverter, ObjectStorePath},
-    DataDoesNotMatchLength, Result, UnableToDeleteDataFromGcs, UnableToDeleteDataFromGcs2,
-    UnableToGetDataFromGcs, UnableToGetDataFromGcs2, UnableToListDataFromGcs,
-    UnableToListDataFromGcs2, UnableToPutDataToGcs,
+    path::cloud::CloudConverter, DataDoesNotMatchLength, Result, UnableToDeleteDataFromGcs,
+    UnableToDeleteDataFromGcs2, UnableToGetDataFromGcs, UnableToGetDataFromGcs2,
+    UnableToListDataFromGcs, UnableToListDataFromGcs2, UnableToPutDataToGcs,
 };
 use bytes::Bytes;
 use futures::{Stream, TryStreamExt};
@@ -26,12 +25,12 @@ impl GoogleCloudStorage {
     }
 
     /// Return a new location path appropriate for this object storage
-    pub fn new_path(&self) -> ObjectStorePath {
-        ObjectStorePath::default()
+    pub fn new_path(&self) -> crate::path::Path {
+        crate::path::Path::default()
     }
 
     /// Save the provided bytes to the specified location.
-    pub async fn put<S>(&self, location: &ObjectStorePath, bytes: S, length: usize) -> Result<()>
+    pub async fn put<S>(&self, location: &crate::path::Path, bytes: S, length: usize) -> Result<()>
     where
         S: Stream<Item = io::Result<Bytes>> + Send + Sync + 'static,
     {
@@ -50,7 +49,7 @@ impl GoogleCloudStorage {
             }
         );
 
-        let location = CloudConverter::convert(&location);
+        let location = CloudConverter::convert(&location.inner);
         let location_copy = location.clone();
         let bucket_name = self.bucket_name.clone();
 
@@ -74,9 +73,9 @@ impl GoogleCloudStorage {
     /// Return the bytes that are stored at the specified location.
     pub async fn get(
         &self,
-        location: &ObjectStorePath,
+        location: &crate::path::Path,
     ) -> Result<impl Stream<Item = Result<Bytes>>> {
-        let location = CloudConverter::convert(&location);
+        let location = CloudConverter::convert(&location.inner);
         let location_copy = location.clone();
         let bucket_name = self.bucket_name.clone();
 
@@ -97,8 +96,8 @@ impl GoogleCloudStorage {
     }
 
     /// Delete the object at the specified location.
-    pub async fn delete(&self, location: &ObjectStorePath) -> Result<()> {
-        let location = CloudConverter::convert(&location);
+    pub async fn delete(&self, location: &crate::path::Path) -> Result<()> {
+        let location = CloudConverter::convert(&location.inner);
         let location_copy = location.clone();
         let bucket_name = self.bucket_name.clone();
 
@@ -121,10 +120,10 @@ impl GoogleCloudStorage {
     /// List all the objects with the given prefix.
     pub async fn list<'a>(
         &'a self,
-        prefix: Option<&'a ObjectStorePath>,
-    ) -> Result<impl Stream<Item = Result<Vec<ObjectStorePath>>> + 'a> {
+        prefix: Option<&'a crate::path::Path>,
+    ) -> Result<impl Stream<Item = Result<Vec<crate::path::Path>>> + 'a> {
         let bucket_name = self.bucket_name.clone();
-        let prefix = prefix.map(CloudConverter::convert);
+        let prefix = prefix.map(|p| CloudConverter::convert(&p.inner));
 
         let objects = tokio::task::spawn_blocking(move || match prefix {
             Some(prefix) => cloud_storage::Object::list_prefix(&bucket_name, &prefix),
@@ -141,7 +140,7 @@ impl GoogleCloudStorage {
         Ok(futures::stream::once(async move {
             Ok(objects
                 .into_iter()
-                .map(|o| ObjectStorePath::from_cloud_unchecked(o.name))
+                .map(|o| crate::path::Path::from_cloud_unchecked(o.name))
                 .collect())
         }))
     }
@@ -151,7 +150,7 @@ impl GoogleCloudStorage {
 mod test {
     use crate::{
         tests::{get_nonexistent_object, put_get_delete_list},
-        Error, GoogleCloudStorage, ObjectStore,
+        Error, GoogleCloudStorage, ObjectStore, ObjectStorePath,
     };
     use bytes::Bytes;
     use std::env;

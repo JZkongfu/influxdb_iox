@@ -452,7 +452,7 @@ impl RemoteServer for RemoteServerImpl {
     }
 }
 
-fn server_object_store_path(store: &ObjectStore, writer_id: u32) -> ObjectStorePath {
+fn server_object_store_path(store: &ObjectStore, writer_id: u32) -> object_store::path::Path {
     let mut path = store.new_path();
     path.push_dir(format!("{}", writer_id));
     path
@@ -470,7 +470,7 @@ mod tests {
     };
     use futures::TryStreamExt;
     use influxdb_line_protocol::parse_lines;
-    use object_store::memory::InMemory;
+    use object_store::{memory::InMemory, path::ObjectStorePath};
     use query::frontend::sql::SQLQueryPlanner;
     use snafu::Snafu;
     use std::collections::BTreeMap;
@@ -524,11 +524,13 @@ mod tests {
             .await
             .expect("failed to create database");
 
+        let mut location = server.store.new_path();
+        location.push_all_dirs(&["1", "bananas"]);
+        location.set_file_name("rules.json");
+
         let read_data = server
             .store
-            .get(&ObjectStorePath::from_cloud_unchecked(
-                "1/bananas/rules.json",
-            ))
+            .get(&location)
             .await
             .unwrap()
             .map_ok(|b| bytes::BytesMut::from(&b[..]))
