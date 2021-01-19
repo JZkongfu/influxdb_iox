@@ -151,7 +151,7 @@ impl ObjectStore {
         match &self.0 {
             AmazonS3(s3) => s3.list_with_delimiter(prefix, &None).await,
             GoogleCloudStorage(_gcs) => unimplemented!(),
-            InMemory(in_mem) => in_mem.list_with_delimiter(prefix, &None).await,
+            InMemory(in_mem) => in_mem.list_with_delimiter(prefix).await,
             File(_file) => unimplemented!(),
             MicrosoftAzure(_azure) => unimplemented!(),
         }

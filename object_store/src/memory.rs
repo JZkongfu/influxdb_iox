@@ -119,7 +119,6 @@ impl InMemory {
     pub async fn list_with_delimiter<'a>(
         &'a self,
         prefix: &'a ObjectStorePath,
-        _next_token: &Option<String>,
     ) -> Result<ListResult> {
         let mut common_prefixes = BTreeSet::new();
         let last_modified = Utc::now();
