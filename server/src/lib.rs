@@ -192,7 +192,7 @@ impl<M: ConnectionManager> Server<M> {
             Bytes::from(serde_json::to_vec(&db_reservation.db.rules).context(ErrorSerializing)?);
         let len = data.len();
         let location = object_store_path_for_database_config(
-            &server_object_store_path(id),
+            &server_object_store_path(&self.store, id),
             &db_reservation.name,
         );
 
@@ -452,8 +452,10 @@ impl RemoteServer for RemoteServerImpl {
     }
 }
 
-fn server_object_store_path(writer_id: u32) -> ObjectStorePath {
-    ObjectStorePath::from_cloud_unchecked(format!("{}", writer_id))
+fn server_object_store_path(store: &ObjectStore, writer_id: u32) -> ObjectStorePath {
+    let mut path = store.new_path();
+    path.push_dir(format!("{}", writer_id));
+    path
 }
 
 #[cfg(test)]
@@ -790,7 +792,10 @@ partition_key:
         // write lines should have caused a segment rollover and persist, wait
         tokio::task::yield_now().await;
 
-        let path = ObjectStorePath::from_cloud_unchecked("1/my_db/wal/000/000/001.segment");
+        let mut path = store.new_path();
+        path.push_all_dirs(&["1", "my_db", "wal", "000", "000"]);
+        path.set_file_name("001.segment");
+
         let data = store
             .get(&path)
             .await
