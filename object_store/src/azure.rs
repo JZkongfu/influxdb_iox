@@ -1,13 +1,18 @@
 //! This module contains the IOx implementation for using Azure Blob storage as
 //! the object store.
 use crate::{
-    path::cloud::CloudPath, DataDoesNotMatchLength, Result, UnableToDeleteDataFromAzure,
-    UnableToGetDataFromAzure, UnableToListDataFromAzure, UnableToPutDataToAzure,
+    path::cloud::CloudPath, DataDoesNotMatchLength, ListResult, ObjectStoreApi, Result,
+    UnableToDeleteDataFromAzure, UnableToGetDataFromAzure, UnableToListDataFromAzure,
+    UnableToPutDataToAzure,
 };
+use async_trait::async_trait;
 use azure_sdk_core::prelude::*;
 use azure_sdk_storage_blob::prelude::*;
 use bytes::Bytes;
-use futures::{stream, FutureExt, Stream, TryStreamExt};
+use futures::{
+    stream::{self, BoxStream},
+    FutureExt, Stream, StreamExt, TryStreamExt,
+};
 use snafu::{ensure, ResultExt};
 use std::io;
 use std::sync::Arc;
@@ -19,44 +24,15 @@ pub struct MicrosoftAzure {
     container_name: String,
 }
 
-impl MicrosoftAzure {
-    /// Configure a connection to container with given name on Microsoft Azure
-    /// Blob store.
-    ///
-    /// The credentials `account` and `master_key` must provide access to the
-    /// store.
-    pub fn new(account: String, master_key: String, container_name: impl Into<String>) -> Self {
-        Self {
-            client: Arc::new(azure_sdk_storage_core::client::with_access_key(
-                &account,
-                &master_key,
-            )),
-            container_name: container_name.into(),
-        }
-    }
+#[async_trait]
+impl ObjectStoreApi for MicrosoftAzure {
+    type Path = CloudPath;
 
-    /// Configure a connection to container with given name on Microsoft Azure
-    /// Blob store.
-    ///
-    /// The credentials `account` and `master_key` must be set via the
-    /// environment variables `AZURE_STORAGE_ACCOUNT` and
-    /// `AZURE_STORAGE_MASTER_KEY` respectively.
-    pub fn new_from_env(container_name: impl Into<String>) -> Self {
-        let account = std::env::var("AZURE_STORAGE_ACCOUNT")
-            .expect("Set env variable AZURE_STORAGE_ACCOUNT first!");
-        let master_key = std::env::var("AZURE_STORAGE_MASTER_KEY")
-            .expect("Set env variable AZURE_STORAGE_MASTER_KEY first!");
-
-        Self::new(account, master_key, container_name)
-    }
-
-    /// Return a new location path appropriate for this object storage
-    pub fn new_path(&self) -> CloudPath {
+    fn new_path(&self) -> Self::Path {
         CloudPath::default()
     }
 
-    /// Save the provided bytes to the specified location.
-    pub async fn put<S>(&self, location: &CloudPath, bytes: S, length: usize) -> Result<()>
+    async fn put<S>(&self, location: &Self::Path, bytes: S, length: usize) -> Result<()>
     where
         S: Stream<Item = io::Result<Bytes>> + Send + Sync + 'static,
     {
@@ -89,8 +65,7 @@ impl MicrosoftAzure {
         Ok(())
     }
 
-    /// Return the bytes that are stored at the specified location.
-    pub async fn get(&self, location: &CloudPath) -> Result<impl Stream<Item = Result<Bytes>>> {
+    async fn get(&self, location: &Self::Path) -> Result<BoxStream<'static, Result<Bytes>>> {
         let client = self.client.clone();
         let container_name = self.container_name.clone();
         let location = location.to_raw();
@@ -106,11 +81,11 @@ impl MicrosoftAzure {
                     location: location.to_owned(),
                 })
         }
-        .into_stream())
+        .into_stream()
+        .boxed())
     }
 
-    /// Delete the object at the specified location.
-    pub async fn delete(&self, location: &CloudPath) -> Result<()> {
+    async fn delete(&self, location: &Self::Path) -> Result<()> {
         let location = location.to_raw();
         self.client
             .delete_blob()
@@ -126,11 +101,10 @@ impl MicrosoftAzure {
         Ok(())
     }
 
-    /// List all the objects with the given prefix.
-    pub async fn list<'a>(
+    async fn list<'a>(
         &'a self,
-        prefix: Option<&'a CloudPath>,
-    ) -> Result<impl Stream<Item = Result<Vec<CloudPath>>> + 'a> {
+        prefix: Option<&'a Self::Path>,
+    ) -> Result<BoxStream<'a, Result<Vec<Self::Path>>>> {
         #[derive(Clone)]
         enum ListState {
             Start,
@@ -178,14 +152,51 @@ impl MicrosoftAzure {
                 .collect();
 
             Some((Ok(names), next_state))
-        }))
+        })
+        .boxed())
+    }
+
+    async fn list_with_delimiter(&self, _prefix: &Self::Path) -> Result<ListResult<Self::Path>> {
+        unimplemented!();
+    }
+}
+
+impl MicrosoftAzure {
+    /// Configure a connection to container with given name on Microsoft Azure
+    /// Blob store.
+    ///
+    /// The credentials `account` and `master_key` must provide access to the
+    /// store.
+    pub fn new(account: String, master_key: String, container_name: impl Into<String>) -> Self {
+        Self {
+            client: Arc::new(azure_sdk_storage_core::client::with_access_key(
+                &account,
+                &master_key,
+            )),
+            container_name: container_name.into(),
+        }
+    }
+
+    /// Configure a connection to container with given name on Microsoft Azure
+    /// Blob store.
+    ///
+    /// The credentials `account` and `master_key` must be set via the
+    /// environment variables `AZURE_STORAGE_ACCOUNT` and
+    /// `AZURE_STORAGE_MASTER_KEY` respectively.
+    pub fn new_from_env(container_name: impl Into<String>) -> Self {
+        let account = std::env::var("AZURE_STORAGE_ACCOUNT")
+            .expect("Set env variable AZURE_STORAGE_ACCOUNT first!");
+        let master_key = std::env::var("AZURE_STORAGE_MASTER_KEY")
+            .expect("Set env variable AZURE_STORAGE_MASTER_KEY first!");
+
+        Self::new(account, master_key, container_name)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{tests::put_get_delete_list, ObjectStore};
+    use crate::tests::put_get_delete_list;
     use std::env;
 
     type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
@@ -240,9 +251,8 @@ mod tests {
 
         let container_name = env::var("AZURE_STORAGE_CONTAINER")
             .map_err(|_| "The environment variable AZURE_STORAGE_CONTAINER must be set")?;
-        let azure = MicrosoftAzure::new_from_env(container_name);
+        let integration = MicrosoftAzure::new_from_env(container_name);
 
-        let integration = ObjectStore::new_microsoft_azure(azure);
         put_get_delete_list(&integration).await?;
 
         Ok(())
